@@ -1,0 +1,215 @@
+---
+title: "EMBDAT"
+author: "Anna Li"
+date: '2023-07-16'
+output: html_document
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(tidyverse)
+library(ggplot2)
+library(openxlsx)
+library(tidyr)
+library(lubridate)
+```
+
+```{r setup, echo=FALSE}
+# Read the dataset
+raw <- read_excel("/Users/anna/Desktop/Cambridge/raw/emdat_public_2023_07_21_query_uid-matlTp.xlsx")
+```
+
+```{r}
+# List of US state names
+states <- c("Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida",
+            "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine",
+            "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska",
+            "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio",
+            "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas",
+            "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming","District of Columbia")
+
+
+states_isolate <- raw %>%
+  separate_rows(Location, sep = ",\\s*") %>%
+  mutate(State = trimws(Location)) %>%
+  filter(State %in% states) %>% 
+  mutate(Year = as.integer(Year))
+
+```
+
+```{r freq}
+
+# Create a grid of all possible combinations of states and years
+grid <- expand.grid(Year = 2010:2019, State = states)
+
+# Extract state names from the location column and count occurrences
+state_year_counts <- states_isolate %>%
+  group_by(State, Year) %>%
+  summarize(frequency=n())
+
+
+# Merge the grid with state counts to fill in missing values with 0
+state_counts_complete <- merge(grid, state_year_counts, by = c("Year", "State"), all = TRUE) %>% 
+  replace_na(list(frequency = 0))
+
+# #standardizing frequency
+# year_count<-states_isolate %>%
+#   group_by(Year) %>%
+#   summarize(yeartotal=n())
+
+# frequencyindex<-merge(state_counts_complete, year_count, by = "Year", all=TRUE) 
+# stand_freq<-frequencyindex %>% mutate(standard_frequency = frequency/yeartotal)
+```
+
+```{r killed}
+# #total deaths and total affected
+# totdeath<-states_isolate %>% group_by(State,Year) %>% summarize(total_deaths = sum(`Total Deaths`))
+# totaffect<-states_isolate %>% group_by(State,Year) %>% summarize(total_affected = sum(`Total Affected`))
+# totaldeath<-merge(grid, totdeath, by = c("Year", "State"), all = TRUE)
+# totalaffected<-merge(grid, totaffect, by = c("Year", "State"), all = TRUE)
+# 
+# #standardize values by dividing by population
+# 
+# #population calculation for 2010-2019
+# pop<-read_excel("/Users/anna/Desktop/Cambridge/raw/nst-est2019-01.xlsx")
+# pop <- pop[-c(2:5), ]
+# pop <- pop[-c(52:58), ]
+# pop<-pop[,-c(2:3)]
+# #pivot data
+# pop_long <- pivot_longer(pop, cols = c("2010", "2011", "2012", "2013", "2014","2015", "2016", "2017", "2018","2019"), names_to = "Year", values_to = "population")
+# # Convert the 'Year' column to numeric
+# pop_long$Year <- as.integer(pop_long$Year)
+# pop_filter <- pop_long %>% filter(State=="United States") %>% rename(country=State)
+# 
+# #as we are doing it by state, cannot do what they did which is per disaster/total pop
+# #what we can do it divide by total us population....
+# deathindex<-merge(totaldeath, pop_filter, by = "Year", all=TRUE) 
+# death_freq<-deathindex %>% mutate(standard_death = total_deaths/population) %>% select(-country)
+# affectedindex<-merge(totalaffected, pop_filter, by = "Year", all=TRUE) 
+# affected_freq<-affectedindex %>% mutate(standard_affected = total_affected/population) %>% select(-country)
+```
+
+
+```{r duration}
+date<-states_isolate %>%
+  unite("start_date", c("Start Day", "Start Month", "Start Year"), sep = "/") %>% 
+  unite("end_date", c("End Day", "End Month", "End Year"), sep = "/") %>% 
+  mutate(start_date = as.Date(start_date, format = "%d/%m/%Y"),
+         end_date = as.Date(end_date,format = "%d/%m/%Y")) %>% select(`Dis No`,State,Year, start_date,end_date)
+# Convert start_date and end_date to Date objects
+date$start_date <- ymd(date$start_date)
+date$end_date <- ymd(date$end_date)
+```
+
+
+```{r}
+
+date<- date %>% group_by(State,Year) %>% distinct(start_date,end_date) %>% 
+      filter(!is.na(start_date) & !is.na(end_date))
+
+# Create a function to compute the binary flag and raw day count for each observation within a specific year
+compute_days_in_year <- function(year) {
+  days_in_year_flag <- (date$start_date <= ymd(paste0(year, "-12-31"))) &
+                       (date$end_date >= ymd(paste0(year, "-01-01")))
+  
+  days_in_year_count <- pmax(0, pmin(date$end_date, ymd(paste0(year, "-12-31"))) -
+                            pmax(date$start_date, ymd(paste0(year, "-01-01"))) + 1)
+  
+  return(list(flag = days_in_year_flag, count = days_in_year_count))
+}
+
+# Loop over the years from 2011 to 2019 and calculate the binary flag and raw day count for each year
+for (year in 2011:2019) {
+  col_name_flag <- paste0("days_in_", year, "_flag")
+  col_name_count <- paste0("days_in_", year, "_count")
+  
+  result <- compute_days_in_year(year)
+  date[, col_name_flag] <- result$flag
+  date[, col_name_count] <- result$count
+}
+# Merge overlapping date ranges for each state and year
+date_merged <- date %>%
+  group_by(State, Year) %>%
+  arrange(start_date) %>%
+  mutate(
+    merged = cumsum(c(0, difftime(start_date[-1], end_date[-n()], units = "days")) > 0)
+  ) %>%
+  group_by(State, Year, merged) %>%
+  summarize(
+    start_date = min(start_date),
+    end_date = max(end_date),
+    days_in_2011_count = sum(days_in_2011_count),
+    days_in_2012_count = sum(days_in_2012_count),
+    days_in_2013_count = sum(days_in_2013_count),
+    days_in_2014_count = sum(days_in_2014_count),
+    days_in_2015_count = sum(days_in_2015_count),
+    days_in_2016_count = sum(days_in_2016_count),
+    days_in_2017_count = sum(days_in_2017_count),
+    days_in_2018_count = sum(days_in_2018_count),
+    days_in_2019_count = sum(days_in_2019_count),
+  ) %>%
+  ungroup() %>%
+  distinct()  # Remove any duplicate rows
+
+# Summarize the merged data by state and year
+sum_date <- date_merged %>%
+  group_by(State, Year) %>%
+  summarize(
+    "2011" = sum(days_in_2011_count),
+    "2012" = sum(days_in_2012_count),
+    "2013" = sum(days_in_2013_count),
+    "2014" = sum(days_in_2014_count),
+    "2015" = sum(days_in_2015_count),
+    "2016" = sum(days_in_2016_count),
+    "2017" = sum(days_in_2017_count),
+    "2018" = sum(days_in_2018_count),
+    "2019" = sum(days_in_2019_count),
+  )
+
+
+#pivot
+date_long <- sum_date %>% select(-Year) %>% 
+  pivot_longer(cols = c("2011", "2012", "2013", "2014","2015", "2016", "2017", "2018","2019"), 
+               names_to = "Year", values_to = "days") %>% group_by(State, Year) %>% summarize(Duration=sum(days))
+#note doesn't have DC
+date_complete<-merge(date_long, grid, by = c("State","Year"), all=TRUE) 
+
+#standardize
+duration_freq <- date_complete %>% mutate(standard_duration = Duration/365)
+
+```
+
+
+```{r damages}
+# damages<-states_isolate %>% rename(total_damages = `Total Damages ('000 US$)`) %>% select(`Dis No`,Year, State, total_damages)
+# gdp<-read_excel("/Users/anna/Desktop/Cambridge/data/gdp.xlsx")
+# #want to standardize by dividing by last year's GDP
+# gdp$gdp <- as.numeric(gdp$gdp)
+# 
+# gdp<-gdp %>% mutate(Year=year-1) %>% select(-year)%>% 
+#   rename(State=state) %>% mutate(gdpaltered = gdp*1000)#to standardize units to 000s US
+# 
+# sum_damages<-damages %>% group_by(State, Year) %>% summarize(total_damages= sum(total_damages))
+# sum_damages<-merge(sum_damages, grid, by = c("State","Year"), all=TRUE) 
+# 
+# damage_freq<-merge(sum_damages, gdp, by=c("State","Year"),all=TRUE)
+# damage_freq<-damage_freq %>% filter(Year!=2009) %>% mutate(standard_damage=total_damages/gdpaltered) %>% select(-gdp)
+```
+
+
+```{r compile}
+#compile 4 index together: frequency, affected, death, duration
+# index<-merge(stand_freq,death_freq, by=c("State","Year"),all=TRUE) 
+# index<-merge(index,affected_freq, by=c("State","Year"),all=TRUE) 
+# index<-merge(index,duration_freq, by=c("State","Year"),all=TRUE) 
+# index<-merge(index,damage_freq, by=c("State","Year"),all=TRUE) 
+index<-merge(state_counts_complete,duration_freq,by=c("State","Year"),all=TRUE)
+
+index<- index %>% mutate(duration=Duration) %>% 
+  # select(-population.x) %>% 
+  # rename(population=  population.y) %>% 
+  select(State, Year, frequency,standard_duration, duration)
+
+write.xlsx(index, file = "/Users/anna/Desktop/Cambridge/output/index.xlsx")
+```
