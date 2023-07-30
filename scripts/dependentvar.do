@@ -4,7 +4,7 @@ global raw "/Users/anna/Desktop/Cambridge/raw"
 global temp "/Users/anna/Desktop/Cambridge/temp"
 global output_data "/Users/anna/Desktop/Cambridge/data"
 ******************************************************************************
-
+/*
 
 //business applications
 import excel "/Users/anna/Desktop/Cambridge/raw/business apps.xlsx", firstrow clear
@@ -41,7 +41,7 @@ drop state E F G H
 rename D state
 order state year bus_app_count
 save "$output_data/final_bus_app", replace
-
+*/
 ******************************************************************************
 
 //outdoor
@@ -170,7 +170,6 @@ label variable pers_expend_change "Change between year t and year t-1"
 label variable pers_expend "A measure of spending on goods and services purchased by, and on behalf of, households based on households' state of residence, in thousands of dollars"
 
 save "$output_data/final_personal_exp.dta",replace
-
 ******************************************************************************
 
 //gdp
@@ -192,43 +191,16 @@ rename AC value2017
 rename AD value2018
 rename AE value2019
 rename AF value2020
-
-encode value2010, generate(intvalue2010)
-encode value2011, generate(intvalue2011)
-encode value2012, generate(intvalue2012)
-encode value2013, generate(intvalue2013)
-encode value2014, generate(intvalue2014)
-encode value2015, generate(intvalue2015)
-encode value2016, generate(intvalue2016)
-encode value2017, generate(intvalue2017)
-gen intvalue2018 = value2018
-//encode value2018, generate(intvalue2018)
-encode value2019, generate(intvalue2019)
-encode value2020, generate(intvalue2020)
-drop value*
-gen change2011 = (intvalue2011/intvalue2010)-1
-gen change2012 = (intvalue2012/intvalue2011)-1
-gen change2013 = (intvalue2013/intvalue2012)-1
-gen change2014 = (intvalue2014/intvalue2013)-1
-gen change2015 = (intvalue2015/intvalue2014)-1
-gen change2016 = (intvalue2016/intvalue2015)-1
-gen change2017 = (intvalue2017/intvalue2016)-1
-gen change2018 = (intvalue2018/intvalue2017)-1
-gen change2019 = (intvalue2019/intvalue2018)-1
-keep GeoName intvalue* change*
-
-
-reshape long intvalue change, i(GeoName) j(year)
-drop if year ==2020
+tostring value2018,replace
 rename GeoName state
+keep state value*
+reshape long value, i(state) j(year)
 drop if state == "United States"
-rename intvalue gdp
-rename change gdp_change
-label variable gdp_change "Change between year t and year t-1"
+rename value gdp
+
 label variable gdp "All industry total includes all Private industries and Government in millions of current dollars"
 
 save "$output_data/final_state_gdp.dta",replace
-
 ******************************************************************************
 
 //employment
@@ -360,29 +332,16 @@ rename AD value2018
 rename AE value2019
 rename AF value2020
 
-gen change2011 = (value2011/value2010)-1
-gen change2012 = (value2012/value2011)-1
-gen change2013 = (value2013/value2012)-1
-gen change2014 = (value2014/value2013)-1
-gen change2015 = (value2015/value2014)-1
-gen change2016 = (value2016/value2015)-1
-gen change2017 = (value2017/value2016)-1
-gen change2018 = (value2018/value2017)-1
-gen change2019 = (value2019/value2018)-1
-
-keep GeoName value* change*
+keep GeoName value*
 
 
-reshape long value change, i(GeoName) j(year)
+reshape long value, i(GeoName) j(year)
 rename GeoName state
 drop if state == "United States"
 rename value rgdp
-rename change rgdpgrowth
-label variable rgdpgrowth "growth between year t+1 and year t"
 label variable rgdp "in millions of chained-2012 year dollars"
-
+by state: gen rgdp_growth = (rgdp[_n+1]/rgdp)-1
 save "$output_data/final_state_rgdp.dta",replace
-
 
 ****************************************************************
 
@@ -430,6 +389,7 @@ merge 1:1 state year using "$temp/pop2020.dta"
 sort state year
 drop _merge
 save "$output_data/pop.dta",replace
+
 ****************************************************************************
 //rgdp per capita
 use "$output_data/final_state_rgdp",clear
@@ -437,11 +397,11 @@ merge 1:1 state year using "$output_data/pop"
 drop if _merge ==1
 drop _merge
 gen rgdppercapita = rgdp/population
-bysort state: gen rgdpcapita_change = (rgdppercapita-rgdppercapita[_n-1])/rgdppercapita[_n-1]
+drop if year==2010
+sort state year
 bysort state: gen rgdpcapita_growth = (rgdppercapita[_n+1]-rgdppercapita)/rgdppercapita
-drop if year==2020
-
 save "$output_data/compiled_rgdp_pop.dta",replace
+
 
 ****************************************************************
 //price parity
@@ -478,41 +438,7 @@ gen disability = real(subinstr(value, "%", "", .))
 drop value
 gen disabilitychange = (disability/disability[_n-1])-1
 save "$output_data/disability.dta",replace
-****************************************************************
-// gov expenditure
-import excel "$raw/govexp.xls",firstrow clear
-rename A state
-drop if state == "United States"
-drop if state == ""
-drop B C D E F G H I J K L Y
-rename M value2009
-rename N value2010
-rename O value2011
-rename P value2012
-rename Q value2013
-rename R value2014
-rename S value2015
-rename T value2016
-rename U value2017 
-rename V value2018
-rename W value2019
-rename X value2020
-drop if _n ==1
-reshape long value, i(state) j(year)
-rename value govexp
-label variable govexp "in millions of dollars"
-save "$temp/govexp.dta",replace
-use "$output_data/final_state_gdp.dta",clear
-merge 1:1 state year using "$temp/govexp.dta"
-drop if _merge ==1
-drop if year==2020 |year==2009
-drop if _merge ==2
-//calculate government srenght: govexp/gdp
 
-gen govstrength= govexp/gdp
-gen govstrengthchange = (govstrength/govstrength[_n-1])-1
-drop _merge
-save "$output_data/govstrength.dta",replace
 ****************************************************************
 //education
 import excel "$raw/education.xlsx",firstrow sheet("high school") clear
@@ -521,8 +447,131 @@ rename A state
 reshape long value, i(state) j(year)
 rename value highschoolgrad
 save "$temp/highschoolgrad.dta",replace
+
 import excel "$raw/education.xlsx",firstrow sheet("bachelor") clear
 drop if A == ""
 rename A state
 reshape long value, i(state) j(year)
 rename value bachelorgrad
+save "$temp/bachelorgrad.dta",replace
+
+use "$temp/highschoolgrad.dta",clear
+merge 1:1 state year using "$temp/bachelorgrad.dta"
+drop _merge
+save "$output_data/education.dta",replace
+
+****************************************************************
+//gdp deflator
+use "$output_data/compiled_rgdp_pop.dta",clear
+merge 1:1 state year using "$output_data/final_state_gdp.dta"
+drop if _merge==2
+keep state year rgdp gdp
+destring gdp, replace
+gen deflator = (gdp/rgdp)*100
+bysort state: gen deflator_growth = (deflator[_n+1]/deflator)-1
+keep state year deflator deflator_growth
+save "$output_data/deflator.dta",replace
+****************************************************************
+//government consumption
+// gov expenditure
+import excel "$raw/govexp.xlsx",firstrow clear
+rename Expenditure1 govexp
+order state year govexp
+label variable govexp "in thousands of dollars (nominal)"
+save "$temp/govexp.dta",replace
+
+
+use "$output_data/final_state_gdp.dta",clear
+merge 1:1 state year using "$temp/govexp.dta"
+drop if _merge ==1
+drop _merge
+//calculate government srenght: govexp/gdp
+save "$temp/govgdp.dta",replace
+
+/*
+import excel "$raw/CPI.xlsx",firstrow clear
+drop E F G
+rename D cpi
+drop if _n==1
+destring Year, generate(year)
+drop Year
+keep if year>2009
+keep if year <2021
+save "$temp/cpi.dta",replace
+
+use "$temp/govgdp.dta",clear
+merge m:1 year using "$temp/cpi.dta"
+drop if _merge ==2
+drop _merge
+keep state year gdp govexp cpi
+destring cpi, replace
+destring gdp, replace
+*/
+merge 1:1 state year using "$output_data/deflator.dta"
+drop if _merge==1
+destring gdp,replace
+gen real_govexp = govexp*deflator
+gen govpercent = govexp/gdp
+label variable real_govexp "in thousands of dollars, adjusted to 2012"
+label variable govpercent "as percentage of gdp"
+drop _merge deflator govexp
+sort state year
+bysort state: gen goveexp_growth = (real_govexp[_n+1]/real_govexp)-1
+drop if year ==2020
+save "$output_data/gov.dta",replace
+****************************************************************
+//labor force
+import excel "$raw/staadata.xlsx",firstrow clear
+drop StatesandselectedareasEmpl D F G H I J 
+rename B state
+rename C year
+rename E laborforce
+drop if state ==""
+drop if _n==1
+destring year, replace
+drop if year<2010
+drop if year>2020
+destring laborforce, replace
+sort state year
+bysort state: gen laborgrowth = (laborforce[_n+1]/laborforce)-1
+save "$output_data/laborforce.dta",replace
+****************************************************************
+//investment
+import excel "$raw/capitaloutlay.xlsx",firstrow clear
+drop D44TotalSecurities D46SecuritiesStateLocal E006TotalCapitalOutlays
+rename D capitaloutlay
+rename State state
+rename Year year
+drop if state == "Data may be unavailable for some years, variables, and levels of government. Observations with missing values are displayed as N/A in the results above. See help page on data availability for more information."
+drop if state == ""
+replace state = "District of Columbia" if state == "DC"
+save "$output_data/investment.dta",replace
+
+
+
+****************************************************************
+//real exhange
+import excel "$raw/API_PX.REX.REER_DS2_en_excel_v2_5729114.xls", firstrow clear
+drop if _n <3
+rename DataSource country
+keep country BC BD BE BF BG BH BI BJ BK BL BM
+keep if country == "United States"
+rename BC value2010
+rename BD value2011
+rename BE value2012
+rename BF value2013
+rename BG value2014
+rename BH value2015
+rename BI value2016
+rename BJ value2017 
+rename BK value2018
+rename BL value2019
+rename BM value2020
+
+reshape long value, i(country) j(year)
+
+rename value exchangerate
+destring exchangerate, replace
+gen exchangerate_growth = (exchangerate[_n+1]/exchangerate)-1
+
+save "$output_data/exchange.dta",replace

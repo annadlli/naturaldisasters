@@ -28,38 +28,63 @@ states <- c("Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado"
             "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio",
             "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas",
             "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming","District of Columbia")
-
+raw %>% group_by(`Disaster Subgroup`) %>% summarize(count = n())
 
 states_isolate <- raw %>%
   separate_rows(Location, sep = ",\\s*") %>%
   mutate(State = trimws(Location)) %>%
   filter(State %in% states) %>% 
   mutate(Year = as.integer(Year))
+```
+
+
+```{r}
+#filter by disaster type
+meteor <- states_isolate %>% filter(`Disaster Subgroup` == "Meteorological")
+climate <- states_isolate %>% filter(`Disaster Subgroup` == "Climatological")
+#geo <- states_isolate %>% filter(`Disaster Subgroup` == "Geophysical")
+hydro <- states_isolate %>% filter(`Disaster Subgroup` == "Hydrological")
 
 ```
 
 ```{r freq}
-
 # Create a grid of all possible combinations of states and years
 grid <- expand.grid(Year = 2010:2019, State = states)
 
 # Extract state names from the location column and count occurrences
 state_year_counts <- states_isolate %>%
-  group_by(State, Year) %>%
+  group_by(State, Year) %>% unique() %>% 
   summarize(frequency=n())
 
 
 # Merge the grid with state counts to fill in missing values with 0
 state_counts_complete <- merge(grid, state_year_counts, by = c("Year", "State"), all = TRUE) %>% 
   replace_na(list(frequency = 0))
+```
 
-# #standardizing frequency
-# year_count<-states_isolate %>%
-#   group_by(Year) %>%
-#   summarize(yeartotal=n())
 
-# frequencyindex<-merge(state_counts_complete, year_count, by = "Year", all=TRUE) 
-# stand_freq<-frequencyindex %>% mutate(standard_frequency = frequency/yeartotal)
+```{r freq}
+# gen freq per disaster type
+climate_count <- climate %>%
+  group_by(State, Year) %>% unique() %>% 
+  summarize(frequency_climate=n())
+# Merge the grid with state counts to fill in missing values with 0
+climate_count_complete <- merge(grid, climate_count, by = c("Year", "State"), all = TRUE) %>% 
+  replace_na(list(frequency_climate = 0))
+
+hydro_count <- hydro %>%
+  group_by(State, Year) %>% unique() %>% 
+  summarize(frequency_hydro=n())
+# Merge the grid with state counts to fill in missing values with 0
+hydro_count_complete <- merge(grid, hydro_count, by = c("Year", "State"), all = TRUE) %>% 
+  replace_na(list(frequency_hydro = 0))
+
+meteor_count <- meteor %>%
+  group_by(State, Year) %>% unique() %>% 
+  summarize(frequency_meteor=n())
+# Merge the grid with state counts to fill in missing values with 0
+meteor_count_complete <- merge(grid, meteor_count, by = c("Year", "State"), all = TRUE) %>% 
+  replace_na(list(frequency_meteor = 0))
 ```
 
 ```{r killed}
@@ -197,6 +222,13 @@ duration_freq <- date_complete %>% mutate(standard_duration = Duration/365)
 # damage_freq<-damage_freq %>% filter(Year!=2009) %>% mutate(standard_damage=total_damages/gdpaltered) %>% select(-gdp)
 ```
 
+```{r}
+#merge diff disaster type
+step1<-merge(hydro_count_complete,meteor_count_complete,by=c("State","Year"),all=TRUE)
+step2<-merge(step1,climate_count_complete,by=c("State","Year"),all=TRUE)
+
+```
+
 
 ```{r compile}
 #compile 4 index together: frequency, affected, death, duration
@@ -205,11 +237,12 @@ duration_freq <- date_complete %>% mutate(standard_duration = Duration/365)
 # index<-merge(index,duration_freq, by=c("State","Year"),all=TRUE) 
 # index<-merge(index,damage_freq, by=c("State","Year"),all=TRUE) 
 index<-merge(state_counts_complete,duration_freq,by=c("State","Year"),all=TRUE)
-
 index<- index %>% mutate(duration=Duration) %>% 
   # select(-population.x) %>% 
   # rename(population=  population.y) %>% 
   select(State, Year, frequency,standard_duration, duration)
+
+index<-merge(index,step2,by=c("State","Year"),all=TRUE)
 
 write.xlsx(index, file = "/Users/anna/Desktop/Cambridge/output/index.xlsx")
 ```
